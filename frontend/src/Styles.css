@@ -1,0 +1,301 @@
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --text: #1f2328;
+  --muted: #6b7280;
+  --accent: #3b82f6;
+  --border: #e5e7eb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: #eef1f4;
+  color: var(--text);
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+label {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 380px;
+  margin: 60px auto;
+}
+
+.center {
+  text-align: center;
+  padding: 60px;
+  color: var(--muted);
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.toolbar select {
+  width: auto;
+  margin-bottom: 0;
+}
+
+.toolbar label {
+  margin-bottom: 0;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.toolbar input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+.pager {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.error {
+  color: #dc2626;
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.badge.healthy {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge.failing {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.badge.dead {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+mark {
+  background: #fef08a;
+}
+
+/* Shared layouts and small-screen behavior. */
+.page > h1,
+.page-heading h1 {
+  font-size: 26px;
+  margin: 0 0 20px;
+}
+.panel {
+  background: var(--card);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 16px 0;
+}
+.panel h2 {
+  margin-top: 0;
+  font-size: 19px;
+}
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+details[open] > summary {
+  margin-bottom: 16px;
+}
+.toolbar {
+  flex-wrap: wrap;
+  align-items: end;
+}
+.toolbar label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.toolbar label.checkbox,
+.checkbox {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.checkbox input {
+  width: auto;
+  margin: 0;
+}
+.toolbar input,
+.toolbar select {
+  margin-bottom: 0;
+}
+.actions,
+.folder-tabs,
+.page-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.page-heading {
+  justify-content: space-between;
+}
+.grow {
+  flex: 1;
+}
+.group-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+.group-row input {
+  flex: 1;
+  min-width: 130px;
+  margin: 0;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+.table-scroll table {
+  min-width: 650px;
+}
+.url {
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 450px;
+  overflow-wrap: anywhere;
+}
+.meta,
+.notice {
+  color: var(--muted);
+  font-size: 13px;
+}
+.empty {
+  padding: 30px 12px;
+  text-align: center;
+  color: var(--muted);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+button,
+a,
+input,
+select,
+summary {
+  outline-offset: 3px;
+}
+@media (max-width: 640px) {
+  .toolbar > label {
+    flex: 1 1 140px;
+  }
+  .panel {
+    padding: 14px;
+  }
+}
+
+/* Explicit block layout for application custom elements. */
+rss-app,
+rss-login,
+rss-article-list,
+rss-article-detail,
+rss-search,
+rss-folders,
+rss-folder-actions,
+rss-feeds,
+rss-feed-editor,
+rss-group-row,
+rss-settings,
+rss-interval-form,
+rss-health,
+rss-import-export {
+  display: block;
+}

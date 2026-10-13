@@ -1,0 +1,148 @@
+.library {
+  padding: 16px 10px;
+  font-size: 13px;
+}
+.heading {
+  padding: 0 6px 14px;
+  strong {
+    font-size: 15px;
+  }
+  > div {
+    display: flex;
+    gap: 5px;
+    margin-top: 12px;
+  }
+  button {
+    font-size: 11px;
+    padding: 5px 7px;
+  }
+}
+.tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  ul {
+    list-style: none;
+    margin: 0;
+    padding-left: 14px;
+  }
+  li {
+    outline-offset: -2px;
+  }
+}
+.row {
+  display: flex;
+  align-items: center;
+  min-height: 35px;
+  gap: 5px;
+  border-radius: 6px;
+  padding: 2px 5px;
+  &:hover,
+  &:focus-within {
+    background: #e8edf2;
+  }
+  > a {
+    color: var(--text);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 5px 0;
+  }
+  &.selected {
+    background: #dfeafa;
+    > a {
+      color: #1859b1;
+      font-weight: 600;
+    }
+  }
+}
+.toggle {
+  color: var(--muted);
+  background: none;
+  padding: 0;
+  width: 15px;
+  flex-shrink: 0;
+}
+.feedIcon {
+  width: 15px;
+  color: #9ba8b7;
+  text-align: center;
+  font-size: 11px;
+}
+.count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.menu {
+  position: relative;
+  flex-shrink: 0;
+  > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 0 5px;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 24px;
+  }
+  > summary::-webkit-details-marker {
+    display: none;
+  }
+  &[open] > summary {
+    margin-bottom: 0;
+  }
+  > div {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    width: 145px;
+    padding: 5px;
+    z-index: 10;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: white;
+    box-shadow: 0 6px 20px #17283b20;
+  }
+  button {
+    display: block;
+    text-align: left;
+    width: 100%;
+    color: var(--text);
+    background: white;
+    font-size: 12px;
+    &:hover {
+      background: #eef3fa;
+    }
+  }
+}
+.dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: 90dvh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  color: var(--text);
+  box-shadow: 0 20px 80px #182b3f30;
+  &::backdrop {
+    background: #17283b55;
+  }
+  :global(.panel) {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  h2 {
+    margin: 0 24px 20px 0;
+    font-size: 19px;
+  }
+}
+.close {
+  float: right;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 4px;
+  font-size: 22px;
+}

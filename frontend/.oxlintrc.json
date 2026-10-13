@@ -1,0 +1,41 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "oxc", "unicorn"],
+  "jsPlugins": ["./tools/HtmlSafety/HtmlSafety.mjs"],
+  "categories": { "correctness": "error" },
+  "ignorePatterns": ["dist/**", "node_modules/**", "playwright-report/**", "test-results/**"],
+  "env": { "browser": true },
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "no-unused-vars": "error",
+    "no-var": "error",
+    "prefer-const": "error"
+  },
+  "overrides": [
+    {
+      "files": ["src/**/*.ts"],
+      "rules": {
+        "rss/no-html-sinks": "error",
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["lit/directives/unsafe-*", "lit-html/directives/unsafe-*"],
+                "message": "Render external HTML only through components/SafeHtml/SafeHtml."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/components/SafeHtml/SafeHtml.ts"],
+      "rules": { "no-restricted-imports": "off" }
+    },
+    {
+      "files": ["tools/**", "e2e/**", "*.config.*"],
+      "env": { "node": true }
+    }
+  ]
+}

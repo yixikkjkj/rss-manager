@@ -1,0 +1,42 @@
+{
+  "name": "rss-manager-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "npm run typecheck && rspack build --mode production",
+    "dev": "rspack serve --mode development",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings .",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "test": "vitest run && npm run test:lint",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
+    "lint:fix": "oxlint --fix --deny-warnings .",
+    "test:lint": "node --test tools/HtmlSafety/HtmlSafety.test.mjs"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.15",
+    "lit": "^3.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@rspack/cli": "^1.1.8",
+    "@rspack/core": "^1.1.8",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/user-event": "^14.6.7",
+    "css-loader": "^7.1.2",
+    "jsdom": "^30.1.0",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
+    "sass-embedded": "^1.93.0",
+    "sass-loader": "^16.0.5",
+    "style-loader": "^4.0.0",
+    "typescript": "^5.6.3",
+    "vitest": "^5.0.1"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

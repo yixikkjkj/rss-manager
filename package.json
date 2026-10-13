@@ -1,0 +1,16 @@
+{
+  "name": "rss-manager",
+  "private": true,
+  "scripts": {
+    "setup": "npm --prefix frontend ci",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "cargo run --manifest-path backend/Cargo.toml --locked",
+    "build": "npm --prefix frontend run build && cargo build --manifest-path backend/Cargo.toml --locked",
+    "build:release": "npm --prefix frontend run build && cargo build --manifest-path backend/Cargo.toml --locked --release",
+    "check": "node scripts/check.cjs",
+    "check:e2e": "node scripts/check.cjs --e2e"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

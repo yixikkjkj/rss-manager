@@ -1,0 +1,19 @@
+.content {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px 24px;
+  overflow-wrap: anywhere;
+  img {
+    max-width: 100%;
+  }
+  pre {
+    overflow-x: auto;
+    background: #f0f2f5;
+    padding: 10px;
+    border-radius: 6px;
+  }
+  @media (max-width: 640px) {
+    padding: 14px;
+  }
+}

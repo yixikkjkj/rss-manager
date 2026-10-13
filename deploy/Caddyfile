@@ -1,0 +1,33 @@
+# rss-manager Caddyfile（Caddy v2，交付物 D-03，随仓库 deploy/Caddyfile 分发）
+# 用法：caddy run --config Caddyfile
+# 1) 将下方 rss.example.com 替换为你的真实域名；
+# 2) 确保 DNS A/AAAA 记录指向本机公网 IP，且 80/443 已放行；
+# 3) Caddy 自动完成 ACME 证书签发/续期，并自动将 80 重定向到 443（无需额外配置）。
+
+rss.example.com {
+    # ---- 可选：IP 白名单开关（方案 A，默认关闭；取消注释并替换为可信 IP 即启用）----
+    # @denied not remote_ip 1.2.3.4 5.6.7.8
+    # respond @denied 403
+
+    # ---- 请求体大小限制 10MB（对齐应用层 OPML/JSON body，上限 10MB）----
+    request_body {
+        max_size 10MB
+    }
+
+    # ---- 反向代理到 rss-manager（仅本机回环；Docker 部署时指向 compose 服务名）----
+    # 二进制部署：reverse_proxy 127.0.0.1:8080
+    # Docker 部署：reverse_proxy rss-manager:8080
+    reverse_proxy 127.0.0.1:8080
+
+    # ---- 可选：访问日志（如启用，保留期建议 ≥ 1 年，对齐安全侧审计保留期）----
+    # log {
+    #     output file /data/logs/caddy-access.log {
+    #         roll_size 10MB
+    #         roll_keep 20
+    #     }
+    # }
+
+    # ---- 可选：基础防护规则（默认不强制，方案 A 预留开关位）----
+    # @badua header_regexp User-Agent (sqlmap|nikto)
+    # respond @badua 403
+}

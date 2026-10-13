@@ -1,0 +1,25 @@
+# rss-manager systemd 守护模板（交付物 D-07，仅二进制部署路径，可选）
+# 安装：
+#   sudo cp rss-manager.service.example /etc/systemd/system/rss-manager.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now rss-manager
+
+[Unit]
+Description=rss-manager (self-hosted RSS manager)
+After=network.target
+
+[Service]
+Type=simple
+User=rssmanager
+WorkingDirectory=/opt/rss-manager
+ExecStart=/opt/rss-manager/rss-manager
+Restart=on-failure
+RestartSec=5
+# 环境变量注入（对应 deploy/.env.example）
+EnvironmentFile=/opt/rss-manager/.env
+
+# 安全加固（可选）
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

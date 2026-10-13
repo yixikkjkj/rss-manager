@@ -1,0 +1,40 @@
+# rss-manager 一键编排（交付物 D-02）：Caddy（TLS 终结）+ rss-manager（内部网络）
+# 用法：cp .env.example .env 并填入密钥后，docker compose up -d
+services:
+  rss-manager:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: always
+    env_file: .env
+    environment:
+      RSS_MANAGER_LISTEN_ADDR: 0.0.0.0:8080
+    volumes:
+      - rss-data:/data
+    expose:
+      - "8080"
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2
+    restart: always
+    depends_on:
+      - rss-manager
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - internal
+
+volumes:
+  rss-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  internal:

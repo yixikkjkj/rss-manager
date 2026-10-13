@@ -1,0 +1,9 @@
+# https://rust-lang.github.io/rustfmt/
+match_block_trailing_comma = true
+max_width = 120
+fn_call_width = 100
+short_array_element_width_threshold = 15
+single_line_if_else_max_width = 80
+single_line_let_else_max_width = 80
+struct_lit_width = 30
+tab_spaces = 2

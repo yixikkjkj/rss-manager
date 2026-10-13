@@ -1,0 +1,14 @@
+/target
+/backend/target
+/node_modules
+/frontend/dist
+/frontend/node_modules
+/frontend/test-results
+/frontend/playwright-report
+.env
+/data
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+my/
