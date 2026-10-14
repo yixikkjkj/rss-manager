@@ -127,6 +127,35 @@ async fn subscriptions_edit_clear_overrides_and_restore_deleted_names() {
   assert_eq!(restored["id"], id);
 }
 #[tokio::test]
+async fn feed_icons_are_returned_and_invalidated_only_when_addresses_change() {
+  let test = TestApp::new().await;
+  test.seed().await;
+  with_conn(&test.state.db, |c| {
+    c.execute(
+      "UPDATE t_feed SET icon_url='https://cdn.example.com/icon.png',icon_checked_at='2026-01-01T00:00:00Z' WHERE id=1",
+      [],
+    )?;
+    Ok(())
+  })
+  .await
+  .unwrap();
+  assert_eq!(test.ok("feed_list", json!({})).await["items"][0]["icon_url"], "https://cdn.example.com/icon.png");
+  let mut edit =
+    json!({"id":1,"title":"Renamed","xml_url":"https://fixture.invalid/feed","html_url":null,"use_readability":true});
+  assert_eq!(test.ok("feed_update", edit.clone()).await["icon_url"], "https://cdn.example.com/icon.png");
+  edit["html_url"] = json!("https://example.com/blog");
+  assert!(test.ok("feed_update", edit).await["icon_url"].is_null());
+  with_conn(&test.state.db, |c| {
+    assert!(c
+      .query_row("SELECT icon_checked_at FROM t_feed WHERE id=1", [], |r| r.get::<_, Option<String>>(0))?
+      .is_none());
+    Ok(())
+  })
+  .await
+  .unwrap();
+}
+
+#[tokio::test]
 async fn unsafe_feed_addresses_are_rejected_before_queueing() {
   let test = TestApp::new().await;
   for url in [

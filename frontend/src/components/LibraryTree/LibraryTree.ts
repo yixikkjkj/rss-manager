@@ -39,6 +39,7 @@ export class LibraryTree extends AppElement {
   declare private focusKey: string;
   private action = new Action(this);
   private message = '';
+  private failedIcons = new Set<string>();
   private revealedSelection = '';
   private revealSelection() {
     const folderId = this.feedId
@@ -191,6 +192,58 @@ export class LibraryTree extends AppElement {
       </div>
     </details>`;
   }
+  private renderFeedIcon(feed: FeedVO) {
+    let iconUrl: string | undefined;
+    for (const address of [feed.html_url, feed.xml_url]) {
+      if (!address) continue;
+      try {
+        const url = new URL(address);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') continue;
+        iconUrl = new URL('/favicon.ico', url.origin).href;
+        break;
+      } catch {
+        // Older subscriptions may contain an invalid website address.
+      }
+    }
+    const src = [feed.icon_url, iconUrl].find((address) => {
+      if (!address || this.failedIcons.has(address)) return false;
+      try {
+        const url = new URL(address);
+        return url.protocol === 'https:' || url.protocol === 'http:';
+      } catch {
+        return false;
+      }
+    });
+    return html`<span class=${styles.feedIcon} aria-hidden="true">
+      ${
+        src
+          ? keyed(
+              src,
+              html`<img
+                src=${src}
+                alt=""
+                width="16"
+                height="16"
+                loading="lazy"
+                referrerpolicy="no-referrer"
+                @error=${() => {
+                  this.failedIcons.add(src);
+                  this.requestUpdate();
+                }}
+              />`,
+            )
+          : html`<svg viewBox="0 0 24 24" fill="none" focusable="false">
+              <circle cx="5" cy="19" r="2" fill="currentColor" />
+              <path
+                d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>`
+      }
+    </span>`;
+  }
   private renderChildren(parent: number | null): TemplateResult {
     return html`${this.folders
       .filter((folder) => folder.parent_id === parent)
@@ -199,13 +252,15 @@ export class LibraryTree extends AppElement {
         return html`<li
           role="treeitem"
           aria-label=${folder.name}
-          aria-expanded=${String(open)}
-          aria-selected=${String(this.folderId === folder.id && !this.feedId)}
+          aria-expanded=${String(open) as 'true' | 'false'}
+          aria-selected=${String(this.folderId === folder.id && !this.feedId) as 'true' | 'false'}
           tabindex=${this.focusKey === `folder-${folder.id}` ? 0 : -1}
           data-key=${`folder-${folder.id}`}
           data-folder=${folder.id}
         >
-          <div class=${`${styles.row} ${this.folderId === folder.id && !this.feedId ? styles.selected : ''}`}>
+          <div
+            class=${`${styles.row} ${folder.unread_count > 0 ? styles.unread : ''} ${this.folderId === folder.id && !this.feedId ? styles.selected : ''}`}
+          >
             <button
               class=${styles.toggle}
               tabindex="-1"
@@ -215,7 +270,7 @@ export class LibraryTree extends AppElement {
               ${open ? '▾' : '▸'}
             </button>
             <a href=${`/?folder=${folder.id}`} @click=${followLink} title=${folder.name}
-              ><span aria-hidden="true">▱</span> ${folder.name}</a
+              ><span class=${styles.folderIcon} aria-hidden="true">📂</span> ${folder.name}</a
             ><span class=${styles.count} title="子树未读文章">${folder.unread_count || ''}</span
             >${this.folderMenu(folder)}
           </div>
@@ -234,13 +289,18 @@ export class LibraryTree extends AppElement {
           html`<li
             role="treeitem"
             aria-label=${feed.title}
-            aria-selected=${String(this.feedId === feed.id)}
+            aria-selected=${String(this.feedId === feed.id) as 'true' | 'false'}
             tabindex=${this.focusKey === `feed-${feed.id}` ? 0 : -1}
             data-key=${`feed-${feed.id}`}
           >
-            <div class=${`${styles.row} ${this.feedId === feed.id ? styles.selected : ''}`}>
-              <span class=${styles.feedIcon} aria-hidden="true">◉</span
-              ><a href=${`/?feed=${feed.id}`} @click=${followLink} title=${feed.title}>${feed.title}</a
+            <div
+              class=${`${styles.row} ${feed.unread_count > 0 ? styles.unread : ''} ${this.feedId === feed.id ? styles.selected : ''}`}
+            >
+              ${this.renderFeedIcon(feed)}<a
+                href=${`/?feed=${feed.id}`}
+                @click=${followLink}
+                title=${feed.title}
+                >${feed.title}</a
               ><span class=${styles.count}>${feed.unread_count || ''}</span>${this.feedMenu(feed)}
             </div>
           </li>`,
@@ -300,7 +360,7 @@ export class LibraryTree extends AppElement {
         <li
           role="treeitem"
           aria-label="全部文章"
-          aria-selected=${String(!this.folderId && !this.feedId && !this.unread)}
+          aria-selected=${String(!this.folderId && !this.feedId && !this.unread) as 'true' | 'false'}
           tabindex=${this.focusKey === 'all' ? 0 : -1}
           data-key="all"
         >
@@ -309,7 +369,7 @@ export class LibraryTree extends AppElement {
         <li
           role="treeitem"
           aria-label="未读文章"
-          aria-selected=${String(!this.folderId && !this.feedId && this.unread)}
+          aria-selected=${String(!this.folderId && !this.feedId && this.unread) as 'true' | 'false'}
           tabindex=${this.focusKey === 'unread' ? 0 : -1}
           data-key="unread"
         >

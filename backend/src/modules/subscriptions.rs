@@ -45,6 +45,7 @@ pub struct FeedVO {
   pub feed_title: String,
   pub xml_url: String,
   pub html_url: Option<String>,
+  pub icon_url: Option<String>,
   pub health_status: String,
   pub consecutive_failures: i32,
   pub last_fetch_at: Option<String>,
@@ -81,7 +82,7 @@ fn public_site(value: Option<String>) -> ApiResult<Option<String>> {
 const FEED_COLS:&str="f.id,f.folder_id,f.title,COALESCE(f.feed_title,''),f.xml_url,f.html_url,f.health_status,
  f.consecutive_failures,f.last_fetch_at,f.use_readability,
  (SELECT count(*) FROM t_article x WHERE x.feed_id=f.id AND x.deleted=0
- AND NOT EXISTS(SELECT 1 FROM t_article_read r WHERE r.user_id=f.user_id AND r.article_id=x.id)),f.interval_override_sec";
+ AND NOT EXISTS(SELECT 1 FROM t_article_read r WHERE r.user_id=f.user_id AND r.article_id=x.id)),f.interval_override_sec,f.icon_url";
 fn map_feed(r: &rusqlite::Row) -> rusqlite::Result<FeedVO> {
   Ok(FeedVO {
     id: r.get(0)?,
@@ -96,6 +97,7 @@ fn map_feed(r: &rusqlite::Row) -> rusqlite::Result<FeedVO> {
     use_readability: r.get(9)?,
     unread_count: r.get(10)?,
     fetch_interval_sec: r.get(11)?,
+    icon_url: r.get(12)?,
   })
 }
 pub async fn get_feed(db: &Db, user: i64, id: i64) -> ApiResult<FeedVO> {
@@ -150,7 +152,7 @@ pub async fn feed_create(
         ON CONFLICT(user_id,xml_url) DO UPDATE SET deleted=0,folder_id=excluded.folder_id,title=excluded.title,
         html_url=excluded.html_url,interval_override_sec=excluded.interval_override_sec,use_readability=excluded.use_readability,
         health_status='healthy',consecutive_failures=0,next_fetch_at=excluded.next_fetch_at,updated_time=excluded.updated_time,
-        etag=NULL,last_modified=NULL WHERE t_feed.deleted=1 RETURNING id",
+        etag=NULL,last_modified=NULL,icon_url=NULL,icon_checked_at=NULL WHERE t_feed.deleted=1 RETURNING id",
         params![a.user_id,req.folder_id,title,xml,html,interval,req.use_readability.unwrap_or(false),now],|r|r.get::<_,i64>(0))
         .optional()?.ok_or_else(AppError::feed_exists)
     }).await?;
@@ -182,6 +184,8 @@ pub async fn feed_update(
       }
       tx.execute("UPDATE t_feed SET title=?1,folder_id=?2,html_url=?3,interval_override_sec=?4,use_readability=?5,
         xml_url=?6,updated_time=?7,next_fetch_at=?7,
+        icon_url=CASE WHEN xml_url!=?6 OR html_url IS NOT ?3 THEN NULL ELSE icon_url END,
+        icon_checked_at=CASE WHEN xml_url!=?6 OR html_url IS NOT ?3 THEN NULL ELSE icon_checked_at END,
         etag=CASE WHEN xml_url!=?6 THEN NULL ELSE etag END,last_modified=CASE WHEN xml_url!=?6 THEN NULL ELSE last_modified END,
         health_status=CASE WHEN xml_url!=?6 THEN 'healthy' ELSE health_status END,
         consecutive_failures=CASE WHEN xml_url!=?6 THEN 0 ELSE consecutive_failures END

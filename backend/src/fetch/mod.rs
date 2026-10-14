@@ -1,4 +1,6 @@
 //! Feed ingestion and article extraction. All HTTP goes through FetchClient.
+mod icons;
+
 use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
 use rusqlite::OptionalExtension;
@@ -34,6 +36,7 @@ pub async fn fetch_single_feed(
   let headers = conditional_headers(etag.as_deref(), modified.as_deref());
   let mut new_etag = etag;
   let mut new_modified = modified;
+  let mut discovered_site = None;
   let outcome = match client.get(&url, headers).await {
     Err(e) => FetchOutcome {
       result: "network_error".into(),
@@ -67,14 +70,26 @@ pub async fn fetch_single_feed(
             .map(|f| {
               let title = f.title.map(|t| t.content).unwrap_or_default();
               let entries = f.entries.iter().map(extract_entry).collect::<Vec<_>>();
-              (title, entries)
+              let site = f
+                .links
+                .iter()
+                .filter(|link| link.rel.as_deref().is_none_or(|rel| rel == "alternate"))
+                .filter(|link| {
+                  link
+                    .media_type
+                    .as_deref()
+                    .is_none_or(|kind| matches!(kind, "text/html" | "application/xhtml+xml"))
+                })
+                .find_map(|link| icons::resolve_url(&response.final_url, &link.href));
+              (title, entries, site)
             })
             .map_err(|_| AppError::fetch_failed("Feed 格式无法解析"))
         })
         .await
         .map_err(|_| AppError::internal())?;
         match parsed {
-          Ok((title, entries)) => {
+          Ok((title, entries, site)) => {
+            discovered_site = site;
             let inserted = upsert_articles(db, feed_id, title, entries).await?;
             FetchOutcome {
               result: "success".into(),
@@ -103,6 +118,9 @@ pub async fn fetch_single_feed(
     started.elapsed().as_millis() as i64,
   )
   .await?;
+  if let Err(error) = icons::refresh(db, client, feed_id, url, discovered_site).await {
+    tracing::warn!(feed_id, error = %error.msg, "无法更新订阅源图标");
+  }
   Ok(outcome)
 }
 

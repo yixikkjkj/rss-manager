@@ -16,6 +16,7 @@ export interface FeedVO {
   feed_title: string;
   xml_url: string;
   html_url: string | null;
+  icon_url?: string | null;
   health_status: 'healthy' | 'failing' | 'dead';
   consecutive_failures: number;
   last_fetch_at: string | null;

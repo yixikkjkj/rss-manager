@@ -21,7 +21,7 @@ pub async fn open(path: &str) -> anyhow::Result<Db> {
 
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
   let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-  anyhow::ensure!(version <= 3, "数据库版本高于当前程序，请勿降级运行");
+  anyhow::ensure!(version <= 4, "数据库版本高于当前程序，请勿降级运行");
   let tx = conn.transaction()?;
   if version < 1 {
     tx.execute_batch(include_str!("../migrations/0001_init.sql"))?;
@@ -66,7 +66,10 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
       )?;
     }
   }
-  tx.pragma_update(None, "user_version", 3)?;
+  if version < 4 {
+    tx.execute_batch(include_str!("../migrations/0004_feed_icons.sql"))?;
+  }
+  tx.pragma_update(None, "user_version", 4)?;
   tx.commit()?;
   Ok(())
 }
@@ -193,7 +196,7 @@ mod folder_migration_tests {
     assert_eq!(
       c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
         .unwrap(),
-      3
+      4
     );
   }
 }
