@@ -21,7 +21,7 @@ pub async fn open(path: &str) -> anyhow::Result<Db> {
 
 fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
   let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
-  anyhow::ensure!(version <= 4, "数据库版本高于当前程序，请勿降级运行");
+  anyhow::ensure!(version <= 5, "数据库版本高于当前程序，请勿降级运行");
   let tx = conn.transaction()?;
   if version < 1 {
     tx.execute_batch(include_str!("../migrations/0001_init.sql"))?;
@@ -69,7 +69,10 @@ fn migrate(conn: &mut Connection) -> anyhow::Result<()> {
   if version < 4 {
     tx.execute_batch(include_str!("../migrations/0004_feed_icons.sql"))?;
   }
-  tx.pragma_update(None, "user_version", 4)?;
+  if version < 5 {
+    tx.execute_batch(include_str!("../migrations/0005_feed_request_config.sql"))?;
+  }
+  tx.pragma_update(None, "user_version", 5)?;
   tx.commit()?;
   Ok(())
 }
@@ -112,6 +115,29 @@ pub async fn init_admin_user(db: &Db, config: &Config) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  #[test]
+  fn v4_migration_preserves_feeds_and_initializes_empty_request_config() {
+    let mut c = Connection::open_in_memory().unwrap();
+    c.execute_batch(include_str!("../migrations/0001_init.sql")).unwrap();
+    c.execute_batch(include_str!("../migrations/0002_search_and_settings.sql"))
+      .unwrap();
+    c.execute_batch(include_str!("../migrations/0003_folder_tree.sql"))
+      .unwrap();
+    c.execute_batch(include_str!("../migrations/0004_feed_icons.sql"))
+      .unwrap();
+    c.execute_batch("PRAGMA user_version=4; INSERT INTO t_feed(id,user_id,title,xml_url) VALUES(1,1,'Existing','https://example.com/feed');").unwrap();
+    migrate(&mut c).unwrap();
+    migrate(&mut c).unwrap();
+    let values: (String, String) = c
+      .query_row("SELECT title,request_config FROM t_feed WHERE id=1", [], |r| Ok((r.get(0)?, r.get(1)?)))
+      .unwrap();
+    assert_eq!(values, ("Existing".into(), "{}".into()));
+    assert_eq!(
+      c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+        .unwrap(),
+      5
+    );
+  }
   #[test]
   fn repairs_legacy_index_and_tracks_insert_update_delete() {
     let mut c = Connection::open_in_memory().unwrap();
@@ -196,7 +222,7 @@ mod folder_migration_tests {
     assert_eq!(
       c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
         .unwrap(),
-      4
+      5
     );
   }
 }

@@ -284,3 +284,86 @@ test('legacy folder and source management URLs resolve to the unified reader', a
   await expect(page.locator('rss-reader')).toBeVisible();
   await expect(page.getByRole('link', { name: '源管理', exact: true })).toHaveCount(0);
 });
+
+test('request configuration can be tested before saving, reopened and cleared', async ({ page }) => {
+  await login(page);
+  let probes = 0;
+  await page.route('**/api/rpc/feed_probe', async (route) => {
+    const draft = route.request().postDataJSON();
+    expect(draft.xml_url).toBe('https://fixture.invalid/request-config');
+    expect(draft.request_config).toEqual({
+      headers: [
+        { name: 'User-Agent', value: 'Browser fixture' },
+        { name: 'Cookie', value: 'session=browser-fixture' },
+      ],
+      cookie: '',
+    });
+    probes++;
+    await route.fulfill({
+      json: {
+        code: '0',
+        msg: 'ok',
+        data:
+          probes === 1
+            ? {
+                result: 'challenge_required',
+                http_status: 403,
+                error_message: '疑似源站人机验证或防护页面',
+                feed_title: null,
+                item_count: 0,
+                duration_ms: 8,
+              }
+            : {
+                result: 'success',
+                http_status: 200,
+                error_message: null,
+                feed_title: 'Fixture Feed',
+                item_count: 2,
+                duration_ms: 10,
+              },
+      },
+    });
+  });
+  await page.getByRole('button', { name: '添加订阅源', exact: true }).click();
+  await page.getByLabel('订阅地址', { exact: true }).fill('https://fixture.invalid/request-config');
+  await page.getByLabel('显示名称', { exact: true }).fill('Request fixture');
+  await page.getByText('请求配置（可选）', { exact: true }).click();
+  await page.getByRole('button', { name: '添加请求头' }).click();
+  await page.getByLabel('请求头 1', { exact: true }).fill('User-Agent');
+  await page.getByLabel('请求值 1', { exact: true }).fill('Browser fixture');
+  await page.getByRole('button', { name: '添加请求头' }).click();
+  await page.getByLabel('请求头 2', { exact: true }).fill('Cookie');
+  await page.getByLabel('请求值 2', { exact: true }).fill('session=browser-fixture');
+  await page.getByRole('button', { name: '测试当前配置' }).click();
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText('HTTP 403');
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText('疑似人机验证');
+  await expect(page.getByRole('link', { name: 'Request fixture', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '测试当前配置' }).click();
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText('解析到 2 篇文章');
+  await expect(page.getByLabel('请求值 2', { exact: true })).toHaveAttribute('type', 'text');
+  await expect(page.getByRole('dialog').locator('input[type=password]')).toHaveCount(0);
+  await page.getByRole('dialog').screenshot({ path: test.info().outputPath('request-config-desktop.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const nameBox = await page.getByLabel('请求头 2', { exact: true }).boundingBox();
+  const valueBox = await page.getByLabel('请求值 2', { exact: true }).boundingBox();
+  expect(nameBox!.y).toBe(valueBox!.y);
+  await page.getByRole('dialog').screenshot({ path: test.info().outputPath('request-config-mobile.png') });
+  await page.getByRole('button', { name: '保存订阅', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByLabel('管理订阅源 Request fixture', { exact: true }).click();
+  await page.getByRole('button', { name: '编辑订阅源', exact: true }).click();
+  await page.getByText('请求配置（可选）', { exact: true }).click();
+  await expect(page.getByLabel('请求值 2', { exact: true })).toHaveValue('session=browser-fixture');
+  await expect(page.getByLabel('请求头 1', { exact: true })).toHaveValue('User-Agent');
+  await expect(page.getByLabel('请求值 1', { exact: true })).toHaveValue('Browser fixture');
+  await page.getByRole('button', { name: '清空请求配置' }).click();
+  await page.getByRole('button', { name: '保存订阅', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByLabel('管理订阅源 Request fixture', { exact: true }).click();
+  await page.getByRole('button', { name: '编辑订阅源', exact: true }).click();
+  await page.getByText('请求配置（可选）', { exact: true }).click();
+  await expect(page.getByLabel('请求值 2', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('请求头 1', { exact: true })).toHaveCount(0);
+});

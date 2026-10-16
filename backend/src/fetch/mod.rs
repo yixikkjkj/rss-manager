@@ -1,5 +1,8 @@
 //! Feed ingestion and article extraction. All HTTP goes through FetchClient.
+mod diagnostics;
 mod icons;
+pub mod request_config;
+use request_config::RequestConfig;
 
 use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED};
@@ -24,16 +27,27 @@ pub async fn fetch_single_feed(
   feed_id: i64,
   config: &Config,
 ) -> ApiResult<FetchOutcome> {
-  let (url, etag, modified) = with_conn(db, move |c| {
-    c.query_row("SELECT xml_url,etag,last_modified FROM t_feed WHERE id=?1 AND deleted=0", [feed_id], |r| {
-      Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<String>>(2)?))
-    })
+  let (url, etag, modified, request_config) = with_conn(db, move |c| {
+    c.query_row(
+      "SELECT xml_url,etag,last_modified,request_config FROM t_feed WHERE id=?1 AND deleted=0",
+      [feed_id],
+      |r| {
+        Ok((
+          r.get::<_, String>(0)?,
+          r.get::<_, Option<String>>(1)?,
+          r.get::<_, Option<String>>(2)?,
+          r.get::<_, String>(3)?,
+        ))
+      },
+    )
     .optional()?
     .ok_or_else(AppError::not_found)
   })
   .await?;
+  let snapshot = (url.clone(), request_config.clone());
   let started = std::time::Instant::now();
-  let headers = conditional_headers(etag.as_deref(), modified.as_deref());
+  let mut headers = RequestConfig::from_json(&request_config)?.to_headers()?;
+  headers.extend(conditional_headers(etag.as_deref(), modified.as_deref()));
   let mut new_etag = etag;
   let mut new_modified = modified;
   let mut discovered_site = None;
@@ -55,42 +69,33 @@ pub async fn fetch_single_feed(
           new_articles: 0,
           error_message: None,
         }
-      } else if !response.status.is_success() {
-        FetchOutcome {
-          result: "http_error".into(),
-          http_status: Some(status),
-          new_articles: 0,
-          error_message: Some(format!("HTTP {status}")),
-        }
       } else {
         new_etag = header_string(&response.headers, ETAG);
         new_modified = header_string(&response.headers, LAST_MODIFIED);
         let parsed = tokio::task::spawn_blocking(move || {
-          feed_rs::parser::parse(response.body.as_slice())
-            .map(|f| {
-              let title = f.title.map(|t| t.content).unwrap_or_default();
-              let entries = f.entries.iter().map(extract_entry).collect::<Vec<_>>();
-              let site = f
-                .links
-                .iter()
-                .filter(|link| link.rel.as_deref().is_none_or(|rel| rel == "alternate"))
-                .filter(|link| {
-                  link
-                    .media_type
-                    .as_deref()
-                    .is_none_or(|kind| matches!(kind, "text/html" | "application/xhtml+xml"))
-                })
-                .find_map(|link| icons::resolve_url(&response.final_url, &link.href));
-              (title, entries, site)
-            })
-            .map_err(|_| AppError::fetch_failed("Feed 格式无法解析"))
+          diagnostics::parse_response(&response).map(|f| {
+            let title = f.title.map(|t| t.content).unwrap_or_default();
+            let entries = f.entries.iter().map(extract_entry).collect::<Vec<_>>();
+            let site = f
+              .links
+              .iter()
+              .filter(|link| link.rel.as_deref().is_none_or(|rel| rel == "alternate"))
+              .filter(|link| {
+                link
+                  .media_type
+                  .as_deref()
+                  .is_none_or(|kind| matches!(kind, "text/html" | "application/xhtml+xml"))
+              })
+              .find_map(|link| icons::resolve_url(&response.final_url, &link.href));
+            (title, entries, site)
+          })
         })
         .await
         .map_err(|_| AppError::internal())?;
         match parsed {
           Ok((title, entries, site)) => {
             discovered_site = site;
-            let inserted = upsert_articles(db, feed_id, title, entries).await?;
+            let inserted = upsert_articles(db, feed_id, title, entries, snapshot.clone()).await?;
             FetchOutcome {
               result: "success".into(),
               http_status: Some(status),
@@ -98,12 +103,7 @@ pub async fn fetch_single_feed(
               error_message: None,
             }
           },
-          Err(e) => FetchOutcome {
-            result: "parse_error".into(),
-            http_status: Some(status),
-            new_articles: 0,
-            error_message: Some(e.msg.into()),
-          },
+          Err(outcome) => outcome,
         }
       }
     },
@@ -116,12 +116,72 @@ pub async fn fetch_single_feed(
     new_modified,
     config.fetch_interval,
     started.elapsed().as_millis() as i64,
+    snapshot,
   )
   .await?;
   if let Err(error) = icons::refresh(db, client, feed_id, url, discovered_site).await {
     tracing::warn!(feed_id, error = %error.msg, "无法更新订阅源图标");
   }
   Ok(outcome)
+}
+
+#[derive(serde::Serialize)]
+pub struct ProbeOutcome {
+  #[serde(flatten)]
+  pub outcome: FetchOutcome,
+  pub feed_title: Option<String>,
+  pub item_count: usize,
+  pub duration_ms: u64,
+}
+
+/// Preview always requests a fresh representation and never touches the database.
+pub async fn probe(client: &FetchClient, url: &str, config: &RequestConfig) -> ApiResult<ProbeOutcome> {
+  let url = crate::outbound::normalize_url(url)?;
+  let headers = config.to_headers()?;
+  let started = std::time::Instant::now();
+  let mut result = match client.get(&url, headers).await {
+    Err(error) => ProbeOutcome {
+      outcome: diagnostics::failure("network_error", None, error.msg),
+      feed_title: None,
+      item_count: 0,
+      duration_ms: 0,
+    },
+    Ok(response) => tokio::task::spawn_blocking(move || {
+      let status = response.status.as_u16() as i64;
+      let parsed = if status == 304 {
+        Err(diagnostics::failure(
+          "unexpected_content",
+          Some(status),
+          "测试未发送缓存条件，但源站返回 304，无法验证 Feed 内容",
+        ))
+      } else {
+        diagnostics::parse_response(&response)
+      };
+      match parsed {
+        Ok(feed) => ProbeOutcome {
+          outcome: FetchOutcome {
+            result: "success".into(),
+            http_status: Some(status),
+            new_articles: 0,
+            error_message: None,
+          },
+          feed_title: feed.title.map(|t| t.content),
+          item_count: feed.entries.len(),
+          duration_ms: 0,
+        },
+        Err(outcome) => ProbeOutcome {
+          outcome,
+          feed_title: None,
+          item_count: 0,
+          duration_ms: 0,
+        },
+      }
+    })
+    .await
+    .map_err(|_| AppError::internal())?,
+  };
+  result.duration_ms = started.elapsed().as_millis() as u64;
+  Ok(result)
 }
 
 fn header_string(headers: &HeaderMap, name: reqwest::header::HeaderName) -> Option<String> {
@@ -183,11 +243,17 @@ fn dt_iso(dt: &DateTime<Utc>) -> String {
   dt.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
 }
 
-async fn upsert_articles(db: &Db, feed_id: i64, title: String, entries: Vec<EntryData>) -> ApiResult<i64> {
+async fn upsert_articles(
+  db: &Db,
+  feed_id: i64,
+  title: String,
+  entries: Vec<EntryData>,
+  snapshot: (String, String),
+) -> ApiResult<i64> {
   with_conn(db, move |c| {
     let tx=c.transaction()?;
-    // A deleted feed must not receive articles from a request already in flight.
-    let active:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM t_feed WHERE id=?1 AND deleted=0)",[feed_id],|r|r.get(0))?;
+    // Ignore an old response after the feed URL or request configuration changed.
+    let active:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM t_feed WHERE id=?1 AND deleted=0 AND xml_url=?2 AND request_config=?3)",rusqlite::params![feed_id,snapshot.0,snapshot.1],|r|r.get(0))?;
     if !active {return Ok(0);}
     tx.execute("UPDATE t_feed SET feed_title=?1 WHERE id=?2",rusqlite::params![title,feed_id])?;
     let mut count=0;
@@ -218,12 +284,15 @@ async fn record_outcome(
   modified: Option<String>,
   default_interval: i64,
   duration: i64,
+  snapshot: (String, String),
 ) -> ApiResult<()> {
   let out = out.clone();
   with_conn(db,move |c|{
     let tx=c.transaction()?;
-    let (override_sec, failures):(Option<i64>,i64)=tx.query_row(
-      "SELECT interval_override_sec,consecutive_failures FROM t_feed WHERE id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?)))?;
+    let state:Option<(Option<i64>,i64)>=tx.query_row(
+      "SELECT interval_override_sec,consecutive_failures FROM t_feed WHERE id=?1 AND deleted=0 AND xml_url=?2 AND request_config=?3",
+      rusqlite::params![id,snapshot.0,snapshot.1],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+    let Some((override_sec,failures)) = state else { return Ok(()); };
     let global:Option<i64>=tx.query_row("SELECT value FROM t_setting WHERE key='fetch_interval_sec'",[],|r|r.get(0)).optional()?;
     let interval=effective_interval(override_sec,global.unwrap_or(default_interval));
     let success=matches!(out.result.as_str(),"success"|"not_modified");

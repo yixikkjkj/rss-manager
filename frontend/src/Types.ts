@@ -24,7 +24,20 @@ export interface FeedVO {
   unread_count: number;
   fetch_interval_sec: number | null;
 }
+export interface FeedRequestConfig {
+  headers: { name: string; value: string }[];
+  cookie: string;
+}
+export interface FeedProbeResult {
+  result: string;
+  http_status: number | null;
+  error_message: string | null;
+  feed_title: string | null;
+  item_count: number;
+  duration_ms: number;
+}
 export interface FeedInput {
+  request_config?: FeedRequestConfig;
   xml_url: string;
   title: string;
   folder_id: number | null;

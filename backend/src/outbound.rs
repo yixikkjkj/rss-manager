@@ -17,7 +17,12 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Clone)]
 pub struct FetchClient {
   permits: Arc<Semaphore>,
+  #[cfg(test)]
+  fixture: Option<Arc<TestResponse>>,
 }
+
+#[cfg(test)]
+type TestResponse = dyn Fn(&str, HeaderMap) -> ApiResult<FetchResponse> + Send + Sync;
 
 pub struct FetchResponse {
   pub status: StatusCode,
@@ -30,12 +35,26 @@ impl FetchClient {
   pub fn new() -> Self {
     Self {
       permits: Arc::new(Semaphore::new(5)),
+      #[cfg(test)]
+      fixture: None,
+    }
+  }
+
+  #[cfg(test)]
+  pub fn with_fixture(fixture: impl Fn(&str, HeaderMap) -> ApiResult<FetchResponse> + Send + Sync + 'static) -> Self {
+    Self {
+      fixture: Some(Arc::new(fixture)),
+      ..Self::new()
     }
   }
 
   pub async fn get(&self, raw: &str, headers: HeaderMap) -> ApiResult<FetchResponse> {
     let url = validate_url(raw)?;
     let _permit = self.permits.acquire().await.map_err(|_| AppError::internal())?;
+    #[cfg(test)]
+    if let Some(fixture) = &self.fixture {
+      return fixture(raw, headers);
+    }
     tokio::time::timeout(TIMEOUT, self.request(url, headers))
       .await
       .map_err(|_| AppError::fetch_failed("抓取超时"))?
@@ -87,9 +106,7 @@ impl FetchClient {
           .ok_or_else(|| AppError::fetch_failed("重定向地址无效"))?;
         let next = url.join(target).map_err(|_| AppError::unsafe_url())?;
         validate_url(next.as_str())?;
-        if next.origin() != url.origin() {
-          headers.clear();
-        }
+        strip_redirect_headers(&url, &next, &mut headers);
         url = next;
         continue;
       }
@@ -116,6 +133,13 @@ impl FetchClient {
       });
     }
     Err(AppError::internal())
+  }
+}
+
+fn strip_redirect_headers(from: &Url, to: &Url, headers: &mut HeaderMap) {
+  // Custom headers may contain credentials under any name, not just Authorization.
+  if from.origin() != to.origin() {
+    headers.clear();
   }
 }
 
@@ -188,6 +212,25 @@ fn public_v6(ip: Ipv6Addr) -> bool {
 #[cfg(test)]
 mod tests {
   use super::*;
+  #[test]
+  fn redirects_keep_same_origin_headers_but_strip_all_custom_credentials_on_origin_change() {
+    let source = Url::parse("https://example.com/feed").unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert("cookie", "session=test".parse().unwrap());
+    headers.insert("x-api-key", "test".parse().unwrap());
+    headers.insert("authorization", "Bearer test".parse().unwrap());
+    strip_redirect_headers(&source, &source.join("/rss").unwrap(), &mut headers);
+    assert_eq!(headers.len(), 3);
+    for target in [
+      "https://other.example/feed",
+      "http://example.com/feed",
+      "https://example.com:444/feed",
+    ] {
+      let mut next = headers.clone();
+      strip_redirect_headers(&source, &Url::parse(target).unwrap(), &mut next);
+      assert!(next.is_empty());
+    }
+  }
   #[test]
   fn blocks_local_special_and_alternate_ip_notation() {
     for url in [

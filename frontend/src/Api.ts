@@ -4,6 +4,8 @@ import type {
   ArticleFilter,
   ArticleListVO,
   FeedInput,
+  FeedRequestConfig,
+  FeedProbeResult,
   FeedVO,
   FetchLog,
   FetchStatus,
@@ -57,6 +59,9 @@ export const api = {
   feedList: (folder_id?: number) => rpc<{ items: FeedVO[] }>('feed_list', { folder_id }),
   feedCreate: (req: FeedInput) => rpc<FeedVO>('feed_create', req),
   feedUpdate: (req: FeedInput & { id: number }) => rpc<FeedVO>('feed_update', req),
+  feedRequestConfig: (id: number) => rpc<FeedRequestConfig>('feed_request_config_get', { id }),
+  feedProbe: (xml_url: string, request_config: FeedRequestConfig) =>
+    rpc<FeedProbeResult>('feed_probe', { xml_url, request_config }),
   feedDelete: (id: number) => rpc<void>('feed_delete', { id }),
   feedTest: (id: number) =>
     rpc<{ result: string; new_articles: number; error_message: string | null }>('feed_test', { id }),

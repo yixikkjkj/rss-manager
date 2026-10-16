@@ -409,7 +409,7 @@ async fn import_one(
       return Ok(None);
     }
     c.execute(
-      "UPDATE t_feed SET deleted=0,folder_id=?1,title=?2,health_status='healthy',consecutive_failures=0,next_fetch_at=?3 WHERE user_id=?4 AND xml_url=?5 AND deleted=1",
+      "UPDATE t_feed SET deleted=0,folder_id=?1,title=?2,health_status='healthy',consecutive_failures=0,next_fetch_at=?3,request_config='{}',etag=NULL,last_modified=NULL WHERE user_id=?4 AND xml_url=?5 AND deleted=1",
       rusqlite::params![folder_id,title,crate::dto::now_iso(),user_id,final_url],
     )?;
     if let Ok(id) = c.query_row("SELECT id FROM t_feed WHERE user_id=?1 AND xml_url=?2 AND deleted=0",rusqlite::params![user_id,final_url],|r|r.get::<_,i64>(0)) { return Ok(Some(id)); }

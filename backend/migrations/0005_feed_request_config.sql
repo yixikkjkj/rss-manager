@@ -1,0 +1,1 @@
+ALTER TABLE t_feed ADD COLUMN request_config TEXT NOT NULL DEFAULT '{}';

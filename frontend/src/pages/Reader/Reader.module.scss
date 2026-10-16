@@ -74,7 +74,9 @@
     font-size: 14px;
     line-height: 1.5;
     margin: 6px 0;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   p {
     margin: 0;

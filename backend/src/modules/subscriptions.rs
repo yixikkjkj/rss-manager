@@ -8,6 +8,7 @@ use crate::auth::AuthUser;
 use crate::db::{with_conn, Db};
 use crate::dto::{respond, TraceId};
 use crate::error::{ApiResult, AppError};
+use crate::fetch::request_config::RequestConfig;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -26,6 +27,7 @@ pub struct FeedCreateRequest {
   pub html_url: Option<String>,
   pub fetch_interval_sec: Option<i64>,
   pub use_readability: Option<bool>,
+  pub request_config: Option<RequestConfig>,
 }
 #[derive(Deserialize)]
 pub struct FeedUpdateRequest {
@@ -36,6 +38,7 @@ pub struct FeedUpdateRequest {
   pub html_url: Option<String>,
   pub fetch_interval_sec: Option<i64>,
   pub use_readability: bool,
+  pub request_config: Option<RequestConfig>,
 }
 #[derive(Serialize)]
 pub struct FeedVO {
@@ -144,16 +147,17 @@ pub async fn feed_create(
     let title=validate_name(req.title.as_deref().filter(|x|!x.trim().is_empty()).unwrap_or(&xml))?;
     let html=public_site(req.html_url)?;
     let interval=validate_interval(req.fetch_interval_sec)?;
+    let request_config=req.request_config.unwrap_or_default().to_json()?;
     let id=with_conn(&s.db,move|c|{
       super::folders::check_folder(c,a.user_id,req.folder_id)?;
       let now=crate::dto::now_iso();
-      c.query_row("INSERT INTO t_feed(user_id,folder_id,title,xml_url,html_url,interval_override_sec,use_readability,next_fetch_at,created_time,updated_time)
-        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?8)
+      c.query_row("INSERT INTO t_feed(user_id,folder_id,title,xml_url,html_url,interval_override_sec,use_readability,next_fetch_at,created_time,updated_time,request_config)
+        VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8,?8,?9)
         ON CONFLICT(user_id,xml_url) DO UPDATE SET deleted=0,folder_id=excluded.folder_id,title=excluded.title,
         html_url=excluded.html_url,interval_override_sec=excluded.interval_override_sec,use_readability=excluded.use_readability,
         health_status='healthy',consecutive_failures=0,next_fetch_at=excluded.next_fetch_at,updated_time=excluded.updated_time,
-        etag=NULL,last_modified=NULL,icon_url=NULL,icon_checked_at=NULL WHERE t_feed.deleted=1 RETURNING id",
-        params![a.user_id,req.folder_id,title,xml,html,interval,req.use_readability.unwrap_or(false),now],|r|r.get::<_,i64>(0))
+        etag=NULL,last_modified=NULL,icon_url=NULL,icon_checked_at=NULL,request_config=excluded.request_config WHERE t_feed.deleted=1 RETURNING id",
+        params![a.user_id,req.folder_id,title,xml,html,interval,req.use_readability.unwrap_or(false),now,request_config],|r|r.get::<_,i64>(0))
         .optional()?.ok_or_else(AppError::feed_exists)
     }).await?;
     s.scheduler.trigger(Some(id)).await?;
@@ -167,34 +171,68 @@ pub async fn feed_update(
   Extension(t): Extension<TraceId>,
   Json(req): Json<FeedUpdateRequest>,
 ) -> Response {
-  let r=async{
-    let xml=crate::outbound::normalize_url(&req.xml_url)?;
-    let title=validate_name(&req.title)?;
-    let html=public_site(req.html_url)?;
-    let interval=validate_interval(req.fetch_interval_sec)?;
-    with_conn(&s.db,move|c|{
-      let tx=c.transaction()?;
-      super::folders::check_folder(&tx,a.user_id,req.folder_id)?;
-      let old:String=tx.query_row("SELECT xml_url FROM t_feed WHERE id=?1 AND user_id=?2 AND deleted=0",
-        params![req.id,a.user_id],|r|r.get(0)).optional()?.ok_or_else(AppError::not_found)?;
-      if old!=xml {
-        let conflict:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM t_feed WHERE user_id=?1 AND xml_url=?2 AND id!=?3)",
-          params![a.user_id,xml,req.id],|r|r.get(0))?;
-        if conflict{return Err(AppError::feed_exists());}
+  let r = async {
+    let xml = crate::outbound::normalize_url(&req.xml_url)?;
+    let title = validate_name(&req.title)?;
+    let html = public_site(req.html_url)?;
+    let interval = validate_interval(req.fetch_interval_sec)?;
+    let config = req.request_config.map(|v| v.to_json()).transpose()?;
+    with_conn(&s.db, move |c| {
+      let tx = c.transaction()?;
+      super::folders::check_folder(&tx, a.user_id, req.folder_id)?;
+      let (old, old_config): (String, String) = tx
+        .query_row(
+          "SELECT xml_url,request_config FROM t_feed WHERE id=?1 AND user_id=?2 AND deleted=0",
+          params![req.id, a.user_id],
+          |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(AppError::not_found)?;
+      let same_origin =
+        url::Url::parse(&old).ok().map(|u| u.origin()) == url::Url::parse(&xml).ok().map(|u| u.origin());
+      let config = config.unwrap_or_else(|| if same_origin { old_config.clone() } else { "{}".into() });
+      let changed = old != xml || RequestConfig::from_json(&old_config)? != RequestConfig::from_json(&config)?;
+      if old != xml {
+        let conflict: bool = tx.query_row(
+          "SELECT EXISTS(SELECT 1 FROM t_feed WHERE user_id=?1 AND xml_url=?2 AND id!=?3)",
+          params![a.user_id, xml, req.id],
+          |r| r.get(0),
+        )?;
+        if conflict {
+          return Err(AppError::feed_exists());
+        }
       }
-      tx.execute("UPDATE t_feed SET title=?1,folder_id=?2,html_url=?3,interval_override_sec=?4,use_readability=?5,
+      tx.execute(
+        "UPDATE t_feed SET title=?1,folder_id=?2,html_url=?3,interval_override_sec=?4,use_readability=?5,
         xml_url=?6,updated_time=?7,next_fetch_at=?7,
         icon_url=CASE WHEN xml_url!=?6 OR html_url IS NOT ?3 THEN NULL ELSE icon_url END,
         icon_checked_at=CASE WHEN xml_url!=?6 OR html_url IS NOT ?3 THEN NULL ELSE icon_checked_at END,
-        etag=CASE WHEN xml_url!=?6 THEN NULL ELSE etag END,last_modified=CASE WHEN xml_url!=?6 THEN NULL ELSE last_modified END,
-        health_status=CASE WHEN xml_url!=?6 THEN 'healthy' ELSE health_status END,
-        consecutive_failures=CASE WHEN xml_url!=?6 THEN 0 ELSE consecutive_failures END
+        request_config=?10,
+        etag=CASE WHEN ?11 THEN NULL ELSE etag END,last_modified=CASE WHEN ?11 THEN NULL ELSE last_modified END,
+        health_status=CASE WHEN ?11 THEN 'healthy' ELSE health_status END,
+        consecutive_failures=CASE WHEN ?11 THEN 0 ELSE consecutive_failures END
         WHERE id=?8 AND user_id=?9 AND deleted=0",
-        params![title,req.folder_id,html,interval,req.use_readability,xml,crate::dto::now_iso(),req.id,a.user_id])?;
-      tx.commit()?;Ok(())
-    }).await?;
-    get_feed(&s.db,a.user_id,req.id).await
-  }.await;
+        params![
+          title,
+          req.folder_id,
+          html,
+          interval,
+          req.use_readability,
+          xml,
+          crate::dto::now_iso(),
+          req.id,
+          a.user_id,
+          config,
+          changed
+        ],
+      )?;
+      tx.commit()?;
+      Ok(())
+    })
+    .await?;
+    get_feed(&s.db, a.user_id, req.id).await
+  }
+  .await;
   respond(r, t)
 }
 pub async fn feed_delete(
@@ -205,7 +243,7 @@ pub async fn feed_delete(
 ) -> Response {
   let r = with_conn(&s.db, move |c| {
     if c.execute(
-      "UPDATE t_feed SET deleted=1,updated_time=?1 WHERE id=?2 AND user_id=?3 AND deleted=0",
+      "UPDATE t_feed SET deleted=1,request_config='{}',updated_time=?1 WHERE id=?2 AND user_id=?3 AND deleted=0",
       params![crate::dto::now_iso(), req.id, a.user_id],
     )? == 0
     {
@@ -228,4 +266,45 @@ pub async fn feed_test(
   }
   .await;
   respond(r, t)
+}
+
+/// Explicit authenticated settings read; lists and exports never include credentials.
+pub async fn feed_request_config_get(
+  State(s): State<AppState>,
+  Extension(a): Extension<AuthUser>,
+  Extension(t): Extension<TraceId>,
+  Json(req): Json<IdRequest>,
+) -> Response {
+  let result = with_conn(&s.db, move |c| {
+    let value: String = c
+      .query_row(
+        "SELECT request_config FROM t_feed WHERE id=?1 AND user_id=?2 AND deleted=0",
+        params![req.id, a.user_id],
+        |r| r.get(0),
+      )
+      .optional()?
+      .ok_or_else(AppError::not_found)?;
+    RequestConfig::from_json(&value)
+  })
+  .await;
+  let mut response = respond(result, t);
+  response
+    .headers_mut()
+    .insert(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
+  response
+}
+
+#[derive(Deserialize)]
+pub struct FeedProbeRequest {
+  pub xml_url: String,
+  #[serde(default)]
+  pub request_config: RequestConfig,
+}
+pub async fn feed_probe(
+  State(s): State<AppState>,
+  Extension(_): Extension<AuthUser>,
+  Extension(t): Extension<TraceId>,
+  Json(req): Json<FeedProbeRequest>,
+) -> Response {
+  respond(s.scheduler.probe(&req.xml_url, &req.request_config).await, t)
 }

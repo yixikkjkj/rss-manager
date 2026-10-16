@@ -84,6 +84,8 @@ fn build_router(state: state::AppState) -> Router {
     .route("/feed_update", post(modules::subscriptions::feed_update))
     .route("/feed_delete", post(modules::subscriptions::feed_delete))
     .route("/feed_test", post(modules::subscriptions::feed_test))
+    .route("/feed_probe", post(modules::subscriptions::feed_probe))
+    .route("/feed_request_config_get", post(modules::subscriptions::feed_request_config_get))
     .route("/fetch_now", post(modules::fetching::fetch_now))
     .route("/fetch_status", post(modules::fetching::fetch_status))
     .route("/fetch_config_get", post(modules::fetching::fetch_config_get))

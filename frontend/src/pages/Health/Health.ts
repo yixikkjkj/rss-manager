@@ -5,6 +5,7 @@ import { Action } from '../../controllers/Action';
 import { Poll } from '../../controllers/Poll';
 import { errorMessage } from '../../components/Feedback/Feedback';
 import { api } from '../../Api';
+import { fetchResultLabel } from '../../core/FetchResult';
 
 export class Health extends AppElement {
   static properties = { feed: { state: true }, page: { state: true } };
@@ -110,7 +111,7 @@ export class Health extends AppElement {
                     ${log.feed_title}
                     <div class="meta">${log.fetch_at?.replace('T', ' ').slice(0, 19)}</div>
                   </td>
-                  <td>${log.result} ${log.http_status}</td>
+                  <td>${fetchResultLabel(log.result)} ${log.http_status}</td>
                   <td>${log.new_article_count}</td>
                   <td>${log.duration_ms ?? '—'} ms</td>
                   <td>${log.error_message}</td>

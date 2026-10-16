@@ -6,6 +6,7 @@ import { followLink } from '../../core/Router';
 import { Action } from '../../controllers/Action';
 import { errorMessage } from '../Feedback/Feedback';
 import { api } from '../../Api';
+import { fetchResultLabel } from '../../core/FetchResult';
 import type { FeedVO, FolderVO } from '../../Types';
 import '../FeedEditor/FeedEditor';
 import styles from './LibraryTree.module.scss';
@@ -168,7 +169,7 @@ export class LibraryTree extends AppElement {
               this.message = '正在测试订阅源…';
               const result = await api.feedTest(feed.id);
               if (current()) {
-                this.message = `${result.result}，新增 ${result.new_articles} 篇${result.error_message ? '：' + result.error_message : ''}`;
+                this.message = `${fetchResultLabel(result.result)}，新增 ${result.new_articles} 篇${result.error_message ? '：' + result.error_message : ''}`;
                 this.changed();
               }
             })}

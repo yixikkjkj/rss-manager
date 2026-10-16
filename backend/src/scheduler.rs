@@ -58,6 +58,13 @@ impl Scheduler {
       active: AtomicI32::new(0),
     })
   }
+  pub async fn probe(
+    &self,
+    url: &str,
+    config: &crate::fetch::request_config::RequestConfig,
+  ) -> ApiResult<crate::fetch::ProbeOutcome> {
+    crate::fetch::probe(&self.client, url, config).await
+  }
   pub fn start(self: &Arc<Self>) {
     let me = Arc::clone(self);
     tokio::spawn(async move {

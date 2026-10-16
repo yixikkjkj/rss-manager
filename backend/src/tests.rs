@@ -429,3 +429,257 @@ async fn opml_round_trip_preserves_nested_and_empty_folders() {
     .any(|f| f["name"] == "Empty" && f["parent_id"] == root));
   assert_eq!(test.ok("feed_get", json!({"id":1})).await["folder_id"], child);
 }
+
+#[tokio::test]
+async fn request_config_round_trip_validation_reset_export_and_restore() {
+  let test = TestApp::new().await;
+  let config = json!({"headers":[{"name":"Authorization","value":"Bearer fixture-secret"},{"name":"User-Agent","value":"Fixture Reader"}],"cookie":"session=fixture-secret"});
+  let created = test
+    .ok(
+      "feed_create",
+      json!({"xml_url":"https://fixture.invalid/config","title":"Configured","request_config":config}),
+    )
+    .await;
+  let id = created["id"].as_i64().unwrap();
+  assert!(!created.to_string().contains("fixture-secret"));
+  assert_eq!(test.ok("feed_request_config_get", json!({"id":id})).await, config);
+  let mut edit = json!({"id":id,"xml_url":"https://fixture.invalid/config","title":"Renamed","use_readability":false});
+  test.ok("feed_update", edit.clone()).await;
+  assert_eq!(test.ok("feed_request_config_get", json!({"id":id})).await, config);
+  for invalid in [
+    json!({"headers":[{"name":"Host","value":"private.invalid"}]}),
+    json!({"headers":[{"name":"User-Agent","value":"ok\r\nInjected: secret"}]}),
+    json!({"cookie":"secret\nother"}),
+  ] {
+    let mut invalid_edit = edit.clone();
+    invalid_edit["request_config"] = invalid.clone();
+    assert_eq!(test.rpc("feed_update", invalid_edit).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(
+      test
+        .rpc("feed_probe", json!({"xml_url":"https://fixture.invalid/","request_config":invalid}))
+        .await
+        .0,
+      StatusCode::BAD_REQUEST
+    );
+    assert_eq!(test.ok("feed_request_config_get", json!({"id":id})).await, config);
+  }
+  for name in ["feed_list", "feed_get", "opml_export", "fetch_log_list"] {
+    assert!(!test
+      .ok(name, json!({"id":id}))
+      .await
+      .to_string()
+      .contains("fixture-secret"));
+  }
+  with_conn(&test.state.db, move |c| {
+    c.execute(
+      "UPDATE t_feed SET etag='old',last_modified='old',health_status='dead',consecutive_failures=3 WHERE id=?1",
+      [id],
+    )?;
+    Ok(())
+  })
+  .await
+  .unwrap();
+  // Explicit empty configuration clears credentials and revives scheduling.
+  edit["request_config"] = json!({});
+  let cleared = test.ok("feed_update", edit.clone()).await;
+  assert_eq!(cleared["health_status"], "healthy");
+  assert_eq!(cleared["consecutive_failures"], 0);
+  assert_eq!(test.ok("feed_request_config_get", json!({"id":id})).await, json!({"headers":[],"cookie":""}));
+  with_conn(&test.state.db, move |c| {
+    let values: (Option<String>, Option<String>) =
+      c.query_row("SELECT etag,last_modified FROM t_feed WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    assert_eq!(values, (None, None));
+    Ok(())
+  })
+  .await
+  .unwrap();
+  edit["request_config"] = config.clone();
+  test.ok("feed_update", edit.clone()).await;
+  // Older clients omitting the field cannot carry credentials into a new origin.
+  edit.as_object_mut().unwrap().remove("request_config");
+  edit["xml_url"] = json!("https://other.invalid/feed");
+  test.ok("feed_update", edit.clone()).await;
+  assert_eq!(test.ok("feed_request_config_get", json!({"id":id})).await["cookie"], "");
+  edit["request_config"] = config;
+  test.ok("feed_update", edit.clone()).await;
+  test.ok("feed_delete", json!({"id":id})).await;
+  assert_eq!(test.rpc("feed_request_config_get", json!({"id":id})).await.0, StatusCode::NOT_FOUND);
+  edit.as_object_mut().unwrap().remove("request_config");
+  test.ok("feed_create", edit).await;
+  assert_eq!(test.ok("feed_request_config_get", json!({"id":id})).await["cookie"], "");
+  with_conn(&test.state.db, |c| {
+    c.execute("INSERT INTO t_feed(id,user_id,title,xml_url) VALUES(999,2,'Private','https://private.invalid')", [])?;
+    Ok(())
+  })
+  .await
+  .unwrap();
+  assert_eq!(test.rpc("feed_request_config_get", json!({"id":999})).await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn probe_and_scheduled_fetch_share_config_diagnostics_and_keep_credentials_scoped() {
+  use crate::{
+    fetch::{self, request_config::RequestConfig},
+    outbound::{FetchClient, FetchResponse},
+  };
+  use reqwest::header::{HeaderMap, CONTENT_TYPE, ETAG};
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  let test = TestApp::new().await;
+  test.seed().await;
+  let config: RequestConfig = serde_json::from_value(
+    json!({"headers":[{"name":"User-Agent","value":"Fixture Reader"},{"name":"Cookie","value":"session=fixture-secret"}]}),
+  )
+  .unwrap();
+  let raw = config.to_json().unwrap();
+  with_conn(&test.state.db, move |c| {
+    c.execute(
+      "UPDATE t_feed SET request_config=?1,etag='old',last_modified='Wed, 21 Oct 2015 07:28:00 GMT' WHERE id=1",
+      [raw],
+    )?;
+    Ok(())
+  })
+  .await
+  .unwrap();
+  let calls = Arc::new(AtomicUsize::new(0));
+  let count = calls.clone();
+  let client = FetchClient::with_fixture(move |url, headers| {
+    let call = count.fetch_add(1, Ordering::SeqCst);
+    let body = if url.ends_with("/feed") {
+      assert_eq!(headers["cookie"], "session=fixture-secret");
+      assert_eq!(headers["user-agent"], "Fixture Reader");
+      if call == 0 {
+        assert!(!headers.contains_key("if-none-match"));
+        assert!(!headers.contains_key("if-modified-since"));
+      } else if call == 1 {
+        assert_eq!(headers["if-none-match"], "old");
+        assert!(headers.contains_key("if-modified-since"));
+      }
+      if call <= 1 {
+        r#"<rss version="2.0"><channel><title>Preview</title><link>https://fixture.invalid/</link><description>Test</description><item><guid>new</guid><title>New item</title></item></channel></rss>"#
+      } else {
+        "<html>Verify you are human; fixture-secret</html>"
+      }
+    } else {
+      assert!(!headers.contains_key("cookie"));
+      assert!(!headers.contains_key("user-agent"));
+      "<html><head><link rel='icon' href='/favicon.ico'></head><body>Public website</body></html>"
+    };
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(CONTENT_TYPE, "text/html".parse().unwrap());
+    response_headers.insert(ETAG, "new".parse().unwrap());
+    Ok(FetchResponse {
+      status: reqwest::StatusCode::OK,
+      headers: response_headers,
+      body: body.as_bytes().to_vec(),
+      final_url: url.parse().unwrap(),
+    })
+  });
+  let preview = fetch::probe(&client, "https://fixture.invalid/feed", &config)
+    .await
+    .unwrap();
+  assert_eq!(preview.outcome.result, "success");
+  assert_eq!(preview.item_count, 1);
+  assert_eq!(preview.feed_title.as_deref(), Some("Preview"));
+  with_conn(&test.state.db, |c| {
+    assert_eq!(c.query_row("SELECT count(*) FROM t_article", [], |r| r.get::<_, i64>(0))?, 1);
+    assert_eq!(c.query_row("SELECT count(*) FROM t_fetch_log", [], |r| r.get::<_, i64>(0))?, 0);
+    assert_eq!(c.query_row("SELECT etag FROM t_feed WHERE id=1", [], |r| r.get::<_, String>(0))?, "old");
+    Ok(())
+  })
+  .await
+  .unwrap();
+  let ingested = fetch::fetch_single_feed(&test.state.db, &client, 1, &test.state.config)
+    .await
+    .unwrap();
+  assert_eq!(ingested.result, "success");
+  assert_eq!(ingested.new_articles, 1);
+  assert_eq!(calls.load(Ordering::SeqCst), 3); // preview + feed + credential-free website icon discovery
+  let failed = fetch::fetch_single_feed(&test.state.db, &client, 1, &test.state.config)
+    .await
+    .unwrap();
+  assert_eq!(failed.result, "challenge_required");
+  let logs = test.ok("fetch_log_list", json!({})).await;
+  assert_eq!(logs["items"][0]["result"], "challenge_required");
+  assert!(!logs.to_string().contains("fixture-secret"));
+  assert_eq!(test.ok("article_list", json!({})).await["total"], 2);
+  let before = test.ok("feed_get", json!({"id":1})).await;
+  let failed_preview = fetch::probe(&client, "https://fixture.invalid/feed", &config)
+    .await
+    .unwrap();
+  assert_eq!(failed_preview.outcome.result, "challenge_required");
+  assert_eq!(test.ok("feed_get", json!({"id":1})).await, before);
+  assert_eq!(test.ok("fetch_log_list", json!({})).await, logs);
+  assert_eq!(
+    test
+      .rpc("feed_probe", json!({"xml_url":"http://127.0.0.1/private"}))
+      .await
+      .0,
+    StatusCode::BAD_REQUEST
+  );
+}
+
+#[tokio::test]
+async fn in_flight_response_cannot_restore_old_validators_after_request_config_change() {
+  use crate::outbound::{FetchClient, FetchResponse};
+  use reqwest::header::{HeaderMap, ETAG};
+  let test = TestApp::new().await;
+  test.seed().await;
+  let db = test.state.db.clone();
+  let client = FetchClient::with_fixture(move |url, _| {
+    // Simulate saving new credentials while the original HTTP request is in flight.
+    let conn = db.lock().unwrap();
+    conn.execute("UPDATE t_feed SET request_config='{}',etag=NULL,last_modified=NULL,consecutive_failures=0,health_status='healthy',next_fetch_at='2099-01-01T00:00:00Z',icon_checked_at=?1 WHERE id=1", [crate::dto::now_iso()]).unwrap();
+    conn
+      .execute("UPDATE t_feed SET request_config=?1 WHERE id=1", [r#"{"cookie":"new-session"}"#])
+      .unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert(ETAG, "stale".parse().unwrap());
+    Ok(FetchResponse { status: reqwest::StatusCode::OK, headers,
+      body: br#"<rss version="2.0"><channel><title>Old response</title><description>Old</description><item><guid>stale</guid><title>Stale item</title></item></channel></rss>"#.to_vec(), final_url:url.parse().unwrap() })
+  });
+  crate::fetch::fetch_single_feed(&test.state.db, &client, 1, &test.state.config)
+    .await
+    .unwrap();
+  with_conn(&test.state.db, |c| {
+    assert_eq!(c.query_row("SELECT count(*) FROM t_article", [], |r| r.get::<_, i64>(0))?, 1);
+    assert_eq!(c.query_row("SELECT count(*) FROM t_fetch_log", [], |r| r.get::<_, i64>(0))?, 0);
+    let current: (Option<String>, i64, String) =
+      c.query_row("SELECT etag,consecutive_failures,next_fetch_at FROM t_feed WHERE id=1", [], |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+      })?;
+    assert_eq!(current, (None, 0, "2099-01-01T00:00:00Z".into()));
+    Ok(())
+  })
+  .await
+  .unwrap();
+}
+
+#[tokio::test]
+async fn opml_restore_clears_deleted_credentials_but_preserves_existing_live_config() {
+  let test = TestApp::new().await;
+  test.seed().await;
+  with_conn(&test.state.db, |c| {
+    c.execute(
+      "UPDATE t_feed SET deleted=1,request_config=?1,etag='stale',last_modified='stale' WHERE id=1",
+      [r#"{"cookie":"deleted-secret"}"#],
+    )?;
+    c.execute(
+      "INSERT INTO t_feed(id,user_id,title,xml_url,request_config) VALUES(2,1,'Live','https://live.invalid/feed',?1)",
+      [r#"{"cookie":"live-secret"}"#],
+    )?;
+    Ok(())
+  })
+  .await
+  .unwrap();
+  test.ok("opml_import",json!({"content":r#"<opml><body><outline text="Restored" xmlUrl="https://fixture.invalid/feed"/><outline text="Live" xmlUrl="https://live.invalid/feed"/></body></opml>"#})).await;
+  assert_eq!(test.ok("feed_request_config_get", json!({"id":1})).await["cookie"], "");
+  assert_eq!(test.ok("feed_request_config_get", json!({"id":2})).await["cookie"], "live-secret");
+  with_conn(&test.state.db, |c| {
+    let validators: (Option<String>, Option<String>) =
+      c.query_row("SELECT etag,last_modified FROM t_feed WHERE id=1", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    assert_eq!(validators, (None, None));
+    Ok(())
+  })
+  .await
+  .unwrap();
+}

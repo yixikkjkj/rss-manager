@@ -1,0 +1,100 @@
+.config {
+  margin-block: 1rem;
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+}
+.hint {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.headers {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.columns,
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr) 28px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+}
+.columns {
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+}
+.row {
+  border-top: 1px solid var(--border);
+  input {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 7px 8px;
+    font-size: 13px;
+  }
+}
+.remove {
+  width: 28px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  &:hover {
+    background: var(--bg);
+    color: var(--text);
+  }
+}
+.empty {
+  margin: 0;
+  padding: 16px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.configActions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+.add,
+.clear {
+  padding: 3px 0;
+  background: transparent;
+  font-size: 12px;
+}
+.add {
+  color: var(--accent);
+}
+.clear {
+  color: var(--muted);
+}
+.result {
+  margin-block: 1rem;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  p {
+    margin-block: 4px 0;
+    font-size: 13px;
+  }
+}
+@media (max-width: 540px) {
+  .columns,
+  .row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) 24px;
+    gap: 6px;
+    padding-inline: 8px;
+  }
+  .remove {
+    width: 24px;
+  }
+}
