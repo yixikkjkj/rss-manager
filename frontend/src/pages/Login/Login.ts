@@ -1,5 +1,7 @@
+import 'yixi-lit-design/components/button';
+import 'yixi-lit-design/components/input';
 import { html } from 'lit';
-import { AppElement, valueOf } from '../../core/AppElement';
+import { AppElement } from '../../core/AppElement';
 import { navigate } from '../../core/Router';
 import { Action } from '../../controllers/Action';
 import { errorMessage } from '../../components/Feedback/Feedback';
@@ -30,26 +32,32 @@ export class Login extends AppElement {
       <h1>登录 rss-manager</h1>
       <form @submit=${this.submit}>
         <label
-          >用户名<input
+          >用户名<ld-input
+            name="username"
             .value=${this.username}
-            @input=${(e: Event) => {
-              this.username = valueOf(e);
+            @ld-input=${(e: CustomEvent<{ value: string }>) => {
+              this.username = e.detail.value;
             }}
             autocomplete="username"
             required
-        /></label>
+          ></ld-input
+        ></label>
         <label
-          >密码<input
+          >密码<ld-input
+            name="password"
             type="password"
             .value=${this.password}
-            @input=${(e: Event) => {
-              this.password = valueOf(e);
+            @ld-input=${(e: CustomEvent<{ value: string }>) => {
+              this.password = e.detail.value;
             }}
             autocomplete="current-password"
             required
-        /></label>
+          ></ld-input
+        ></label>
         ${errorMessage(this.action.error)}
-        <button type="submit" ?disabled=${this.action.busy}>${this.action.busy ? '登录中…' : '登录'}</button>
+        <ld-button variant="primary" type="submit" ?disabled=${this.action.busy} ?loading=${this.action.busy}
+          ><span>${this.action.busy ? '登录中…' : '登录'}</span></ld-button
+        >
       </form>
     </div>`;
   }

@@ -1,6 +1,6 @@
 # Lit 前端约定
 
-前端从 React 迁移到 Lit，运行时依赖只有 `lit` 和 `dompurify`。Rust RPC、SQLite 和 `frontend/dist` 嵌入方式保持兼容。使用 Node.js 24+，以 `frontend/package-lock.json` 和 `npm ci` 为构建基准。
+前端从 React 迁移到 Lit，运行时依赖为 `lit`、`dompurify` 和 `yixi-lit-design`。Rust RPC、SQLite 和 `frontend/dist` 嵌入方式保持兼容。使用 Node.js 24+，以 `frontend/package-lock.json` 和 `npm ci` 为构建基准。
 
 ## 文件命名与目录
 
@@ -47,6 +47,10 @@ src/
 - 响应式字段使用 `static properties`、TypeScript `declare` 和构造函数初始化。不要用原生实例字段遮蔽 Lit 生成的访问器。对象和数组替换引用后更新。
 - 普通私有字段可保存非响应式数据；异步控制器会调用 `requestUpdate()`，手动异步流程需显式请求更新。
 - 订阅编辑器和文章正文通过 `keyed()` 按业务对象重建，避免切换对象后保留旧草稿。
+
+## 组件库接入
+
+已按需接入 `yixi-lit-design` 的 Button、Alert 和 Input，覆盖登录、设置、默认抓取间隔、公共分页按钮与错误提示。当前使用 0.3.0，按需组件已不再引入完整图标字体；新密码字段因原生 minlength 校验问题暂保留原生 input。兼容性边界、构建配置和升级前后体积实测见 [组件库评估](yixi-lit-design.md)。
 
 ## 路由与异步
 

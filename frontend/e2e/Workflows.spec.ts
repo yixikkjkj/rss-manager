@@ -42,6 +42,72 @@ test('login is stable, errors are visible, and logout returns to a usable login 
   await page.getByRole('button', { name: '退出', exact: true }).click();
   await expect(page.getByRole('button', { name: '登录', exact: true })).toBeVisible();
 });
+test('design-system login preserves validation, pending state and repeated error updates', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const iconRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.resourceType() === 'font' || new URL(request.url()).hostname === 'api.iconify.design') {
+      iconRequests.push(request.url());
+    }
+  });
+  let requests = 0;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/rpc/auth_login', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ username: 'admin', password: 'test-password' });
+    requests++;
+    if (requests === 1) await pending;
+    await route.fulfill({ json: { code: '1', msg: `登录失败 ${requests}`, data: null } });
+  });
+  await page.goto('/login');
+  const username = page.getByLabel('用户名', { exact: true });
+  const password = page.getByLabel('密码', { exact: true });
+  await expect(page.locator('rss-login ld-input input')).toHaveCount(2);
+  await expect(username).toHaveAttribute('autocomplete', 'username');
+  await expect(password).toHaveAttribute('autocomplete', 'current-password');
+  await expect(password).toHaveAttribute('type', 'password');
+  await expect(password).toHaveCSS('margin-bottom', '0px');
+  const button = page.locator('rss-login ld-button').getByRole('button');
+  await expect(button).toHaveCSS('background-color', 'rgb(59, 130, 246)');
+  await button.click();
+  expect(
+    await page
+      .getByLabel('密码', { exact: true })
+      .evaluate((input: HTMLInputElement) => input.validity.valueMissing),
+  ).toBe(true);
+  expect(requests).toBe(0);
+  await page.getByLabel('密码', { exact: true }).fill('test-password');
+  expect(
+    await page
+      .locator('rss-login form')
+      .evaluate((form: HTMLFormElement) => Object.fromEntries(new FormData(form))),
+  ).toEqual({ username: 'admin', password: 'test-password' });
+  await page.getByLabel('密码', { exact: true }).press('Enter');
+  try {
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveText('登录中…');
+    await expect(button.locator('.ld-btn__loading')).toBeVisible();
+    await expect.poll(() => requests).toBe(1);
+  } finally {
+    release();
+  }
+  await expect(page.locator('ld-alert').getByRole('alert')).toHaveText('登录失败 1');
+  await expect(button).toBeEnabled();
+  await expect(button).toHaveText('登录');
+  await button.click();
+  await expect(page.locator('ld-alert').getByRole('alert')).toHaveText('登录失败 2');
+  await expect(button).toBeEnabled();
+  const icon = page.locator('ld-alert ld-icon svg');
+  await expect(icon).toBeVisible();
+  await expect(icon.locator('path').first()).toHaveAttribute('d', /\S+/);
+  expect(iconRequests).toEqual([]);
+  expect(errors).toEqual([]);
+});
 test('search paginates and article reading sanitizes legacy HTML and supports keyboard navigation', async ({
   page,
 }) => {
@@ -149,6 +215,65 @@ test('edit and move a subscription in the tree and persist fetch settings', asyn
   await expect(page.getByText('已保存', { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByLabel('间隔（分钟）', { exact: true })).toHaveValue('120');
+});
+test('design-system settings inputs validate native constraints before sending requests', async ({
+  page,
+}) => {
+  await login(page);
+  await page.getByRole('link', { name: '设置', exact: true }).click();
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const intervalRequests: unknown[] = [];
+  const passwordRequests: unknown[] = [];
+  await page.route('**/api/rpc/fetch_config_update', async (route) => {
+    intervalRequests.push(route.request().postDataJSON());
+    await route.fulfill({ json: { code: '0', msg: 'ok', data: null } });
+  });
+  await page.route('**/api/rpc/auth_change_password', async (route) => {
+    passwordRequests.push(route.request().postDataJSON());
+    // Keep the session intact; the test must not change the shared fixture password.
+    await route.fulfill({ json: { code: '1', msg: '测试密码请求已接收', data: null } });
+  });
+  const interval = page.getByLabel('间隔（分钟）', { exact: true });
+  await expect(page.locator('rss-interval-form ld-input input')).toHaveCount(1);
+  for (const value of ['', '29', '10081', '30.5']) {
+    await interval.fill(value);
+    await page.getByRole('button', { name: '保存间隔', exact: true }).click();
+    expect(await interval.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
+    expect(intervalRequests).toEqual([]);
+  }
+  await interval.fill('45');
+  await interval.press('Enter');
+  await expect(page.getByRole('status')).toHaveText('已保存');
+  expect(intervalRequests).toEqual([{ fetch_interval_sec: 2700 }]);
+  await interval.fill('60');
+  await expect(page.getByRole('status')).toHaveCount(0);
+  const oldPassword = page.getByLabel('旧密码', { exact: true });
+  const newPassword = page.getByLabel('新密码', { exact: true });
+  await expect(oldPassword).toHaveAttribute('autocomplete', 'current-password');
+  await expect(newPassword).toHaveAttribute('autocomplete', 'new-password');
+  await expect(newPassword).toHaveAttribute('minlength', '12');
+  const changePassword = page.getByRole('button', { name: '修改密码', exact: true });
+  await changePassword.click();
+  expect(await oldPassword.evaluate((input: HTMLInputElement) => input.validity.valueMissing)).toBe(true);
+  await oldPassword.fill('E2e-Test-Password-123!');
+  await newPassword.pressSequentially('Short1!');
+  await changePassword.click();
+  expect(await newPassword.evaluate((input: HTMLInputElement) => input.validity.tooShort)).toBe(true);
+  expect(passwordRequests).toEqual([]);
+  await newPassword.fill('Updated-Password-123!');
+  await changePassword.click();
+  await expect(page.getByRole('alert')).toHaveText('测试密码请求已接收');
+  expect(passwordRequests).toEqual([
+    {
+      old_password: 'E2e-Test-Password-123!',
+      new_password: 'Updated-Password-123!',
+    },
+  ]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('settings-inputs-mobile.png'), fullPage: true });
+  expect(errors).toEqual([]);
 });
 test('mobile reading stays within viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });

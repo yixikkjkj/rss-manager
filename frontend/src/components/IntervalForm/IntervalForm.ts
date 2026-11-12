@@ -1,5 +1,7 @@
+import 'yixi-lit-design/components/button';
+import 'yixi-lit-design/components/input';
 import { html, nothing } from 'lit';
-import { AppElement, valueOf } from '../../core/AppElement';
+import { AppElement } from '../../core/AppElement';
 import { Action } from '../../controllers/Action';
 import { errorMessage } from '../Feedback/Feedback';
 import { api } from '../../Api';
@@ -32,19 +34,23 @@ class IntervalForm extends AppElement {
     >
       <h2>默认抓取间隔</h2>
       <label
-        >间隔（分钟）<input
+        >间隔（分钟）<ld-input
+          name="fetch_interval_minutes"
           type="number"
           min="30"
           max="10080"
+          step="1"
           required
           .value=${this.minutes}
-          @input=${(e: Event) => {
-            this.minutes = valueOf(e);
+          @ld-input=${(e: CustomEvent<{ value: string }>) => {
+            this.minutes = e.detail.value;
             this.saved = false;
           }}
-      /></label>
+        ></ld-input
+      ></label>
       <p class="meta">适用于选择“继承全局”的源。单源可在左侧文件树的订阅设置中覆盖此值，最低 30 分钟。</p>
-      <button ?disabled=${this.action.busy}>保存间隔</button
+      <ld-button variant="primary" type="submit" ?disabled=${this.action.busy} ?loading=${this.action.busy}
+        >保存间隔</ld-button
       >${this.saved ? html`<span role="status"> 已保存</span>` : nothing} ${errorMessage(this.action.error)}
     </form>`;
   }

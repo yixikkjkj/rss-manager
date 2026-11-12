@@ -1,3 +1,5 @@
+import 'yixi-lit-design/components/button';
+import 'yixi-lit-design/components/input';
 import { html, nothing } from 'lit';
 import { AppElement, valueOf } from '../../core/AppElement';
 import { Resource } from '../../controllers/Resource';
@@ -23,9 +25,11 @@ export class Settings extends AppElement {
       <section class="panel">
         <h2>抓取任务</h2>
         <div class="actions">
-          <button
+          <ld-button
+            variant="primary"
+            ?loading=${this.action.busy}
             ?disabled=${this.action.busy}
-            @click=${() =>
+            @ld-click=${() =>
               this.action.run(async (current) => {
                 await api.fetchNow();
                 if (current()) {
@@ -35,8 +39,8 @@ export class Settings extends AppElement {
               })}
           >
             立即抓取全部
-          </button>
-          <button class="secondary" @click=${this.status.refresh}>刷新状态</button>
+          </ld-button>
+          <ld-button variant="default" @ld-click=${this.status.refresh}>刷新状态</ld-button>
         </div>
         ${this.message ? html`<p role="status">${this.message}</p>` : nothing}
         ${this.status.data ? html`<p>正在抓取 ${this.status.data.active_fetches} / ${this.status.data.max_concurrency}，等待 ${this.status.data.queue_len}</p>` : nothing}
@@ -54,17 +58,21 @@ export class Settings extends AppElement {
         <h2>修改密码</h2>
         <p class="meta">至少 12 位，包含大小写字母、数字和符号。修改后需重新登录。</p>
         <label
-          >旧密码<input
+          >旧密码<ld-input
+            name="old_password"
             type="password"
             autocomplete="current-password"
             required
             .value=${this.oldPwd}
-            @input=${(e: Event) => {
-              this.oldPwd = valueOf(e);
+            @ld-input=${(e: CustomEvent<{ value: string }>) => {
+              this.oldPwd = e.detail.value;
             }}
-        /></label>
+          ></ld-input
+        ></label>
+        <!-- Keep native minlength validation until LdInput avoids rewriting unchanged DOM values. -->
         <label
           >新密码<input
+            name="new_password"
             type="password"
             autocomplete="new-password"
             minlength="12"
@@ -74,7 +82,9 @@ export class Settings extends AppElement {
               this.newPwd = valueOf(e);
             }}
         /></label>
-        <button ?disabled=${this.action.busy}>修改密码</button>
+        <ld-button variant="primary" type="submit" ?disabled=${this.action.busy} ?loading=${this.action.busy}
+          >修改密码</ld-button
+        >
       </form>
       <section class="panel">
         <h2>备份与恢复</h2>

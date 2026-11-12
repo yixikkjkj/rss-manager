@@ -52,6 +52,11 @@ module.exports = (_env, argv) => {
           },
           type: 'javascript/auto',
         },
+        {
+          test: /\.(woff2?|ttf|eot)$/i,
+          type: 'asset/resource',
+          generator: { filename: 'assets/[name].[contenthash][ext]' },
+        },
         { test: /\.css$/i, use: cssLoaders(false), type: 'javascript/auto' },
         { test: /\.scss$/i, use: cssLoaders(true), type: 'javascript/auto' },
       ],

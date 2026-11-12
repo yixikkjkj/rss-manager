@@ -7,6 +7,38 @@
   --border: #e5e7eb;
 }
 
+/* Keep application tokens above library :root defaults, including lazy-loaded CSS. */
+html:root {
+  --ld-brand-color: var(--accent);
+  --ld-brand-color-hover: #2563eb;
+  --ld-brand-color-active: #1d4ed8;
+  --ld-bg-color-page: var(--bg);
+  --ld-bg-color-container: var(--card);
+  --ld-bg-color-component: #eef1f4;
+  --ld-text-color-primary: var(--text);
+  --ld-text-color-secondary: var(--muted);
+  --ld-radius-default: 6px;
+  --ld-font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+ld-button {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Spacing belongs to the host; the library styles its native input. */
+ld-input {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+ld-alert.error {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -25,7 +57,8 @@ a {
   text-decoration: none;
 }
 
-button {
+/* Exclude library buttons without raising specificity above component classes. */
+button:where(:not(.ld-btn)) {
   background: var(--accent);
   color: #fff;
   border: none;
@@ -35,17 +68,17 @@ button {
   font-size: 14px;
 }
 
-button:disabled {
+button:where(:not(.ld-btn)):disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-button.secondary {
+button.secondary:where(:not(.ld-btn)) {
   background: #eef1f4;
   color: var(--text);
 }
 
-input,
+input:not(.ld-input__inner),
 select,
 textarea {
   width: 100%;
